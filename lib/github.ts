@@ -4,6 +4,15 @@
 
 const GITHUB_API_BASE = "https://api.github.com";
 
+const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);
+
+// Returns true if the filename has a markdown extension.
+export function isMarkdownFile(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return Array.from(MARKDOWN_EXTENSIONS).some((ext) => lower.endsWith(ext));
+}
+
+
 export class GitHubApiError extends Error {
   constructor(
     public readonly status: number,
