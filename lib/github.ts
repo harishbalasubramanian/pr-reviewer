@@ -45,5 +45,14 @@ export async function githubFetch<T>(
     throw new GitHubApiError(response.status, body);
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204) {
+    return {} as T;
+  }
+
+  const text = await response.text();
+  if (!text.trim()) {
+    return {} as T;
+  }
+
+  return JSON.parse(text) as T;
 }

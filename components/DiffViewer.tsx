@@ -22,6 +22,14 @@ import EditIcon from "@mui/icons-material/Edit";
 import DeleteIcon from "@mui/icons-material/Delete";
 import CloseIcon from "@mui/icons-material/Close";
 import CheckIcon from "@mui/icons-material/Check";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import LinkIcon from "@mui/icons-material/Link";
+import FormatQuoteIcon from "@mui/icons-material/FormatQuote";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
 import { parsePatch, type DiffLine } from "@/lib/diff";
 import { isMarkdownFile } from "@/lib/github";
 import type { GitHubPRFile, GitHubPRComment, CommentSelectionRange } from "@/types/github";
@@ -68,9 +76,9 @@ function CodeLineContent({
 const LINE_NUM_WIDTH = 48;
 const INDICATOR_WIDTH = 24;
 
-const LINE_STYLES: Record<DiffLine["type"], { bgcolor?: string; textDecoration?: string }> = {
+const LINE_STYLES: Record<DiffLine["type"], { bgcolor?: string }> = {
   added: { bgcolor: "rgba(35, 134, 54, 0.15)" },
-  removed: { bgcolor: "rgba(248, 81, 73, 0.15)", textDecoration: "line-through" },
+  removed: { bgcolor: "rgba(248, 81, 73, 0.15)" },
   context: {},
 };
 
@@ -133,12 +141,20 @@ interface InlineCommentCardProps {
   currentUserLogin: string;
   onEdit: (commentId: number, body: string) => Promise<void>;
   onDelete: (commentId: number) => Promise<void>;
+  onQuoteReply?: (body: string) => void;
 }
 
-function InlineCommentCard({ comment, currentUserLogin, onEdit, onDelete }: InlineCommentCardProps) {
+function InlineCommentCard({
+  comment,
+  currentUserLogin,
+  onEdit,
+  onDelete,
+  onQuoteReply,
+}: InlineCommentCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editBody, setEditBody] = useState(comment.body);
   const [submitting, setSubmitting] = useState(false);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
 
   const handleSave = async () => {
     if (!editBody.trim()) return;
@@ -155,8 +171,51 @@ function InlineCommentCard({ comment, currentUserLogin, onEdit, onDelete }: Inli
 
   const isOwner = comment.user.login === currentUserLogin;
 
+  const handleMenuOpen = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setMenuAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null);
+  };
+
+  const handleCopyLink = async () => {
+    handleMenuClose();
+    try {
+      await navigator.clipboard.writeText(comment.html_url);
+    } catch (err) {
+      console.error("Failed to copy link:", err);
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    handleMenuClose();
+    try {
+      await navigator.clipboard.writeText(comment.body);
+    } catch (err) {
+      console.error("Failed to copy markdown:", err);
+    }
+  };
+
+  const handleQuoteReplyClick = () => {
+    handleMenuClose();
+    if (onQuoteReply) {
+      onQuoteReply(comment.body);
+    }
+  };
+
+  const handleEditClick = () => {
+    handleMenuClose();
+    setIsEditing(true);
+  };
+
+  const handleDeleteClick = async () => {
+    handleMenuClose();
+    await onDelete(comment.id);
+  };
+
   return (
-    <Box sx={{ display: "flex", gap: 1, mb: 1.5 }}>
+    <Box sx={{ display: "flex", gap: 1, mb: 1.5, position: "relative" }}>
       <Avatar src={comment.user.avatar_url} alt={comment.user.login} sx={{ width: 24, height: 24 }} />
       <Box sx={{ flexGrow: 1, minWidth: 0 }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
@@ -166,14 +225,48 @@ function InlineCommentCard({ comment, currentUserLogin, onEdit, onDelete }: Inli
           <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.65rem" }}>
             {new Date(comment.created_at).toLocaleDateString()}
           </Typography>
-          {isOwner && !isEditing && (
-            <Box sx={{ ml: "auto", display: "flex", gap: 0.25 }}>
-              <IconButton size="small" onClick={() => setIsEditing(true)} sx={{ p: 0.25 }}>
-                <EditIcon sx={{ fontSize: 12 }} />
+          
+          {/* Actions Menu */}
+          {!isEditing && (
+            <Box sx={{ ml: "auto" }}>
+              <IconButton size="small" onClick={handleMenuOpen} sx={{ p: 0.25 }}>
+                <MoreHorizIcon sx={{ fontSize: 14 }} />
               </IconButton>
-              <IconButton size="small" onClick={() => onDelete(comment.id)} sx={{ p: 0.25, color: "error.main" }}>
-                <DeleteIcon sx={{ fontSize: 12 }} />
-              </IconButton>
+              <Menu
+                anchorEl={menuAnchorEl}
+                open={Boolean(menuAnchorEl)}
+                onClose={handleMenuClose}
+                transformOrigin={{ horizontal: "right", vertical: "top" }}
+                anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+              >
+                {onQuoteReply && (
+                  <MenuItem onClick={handleQuoteReplyClick} sx={{ py: 0.5 }}>
+                    <ListItemIcon sx={{ minWidth: 28 }}><FormatQuoteIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                    <ListItemText primary="Quote reply" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                  </MenuItem>
+                )}
+                <MenuItem onClick={handleCopyLink} sx={{ py: 0.5 }}>
+                  <ListItemIcon sx={{ minWidth: 28 }}><LinkIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                  <ListItemText primary="Copy link" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                </MenuItem>
+                <MenuItem onClick={handleCopyMarkdown} sx={{ py: 0.5 }}>
+                  <ListItemIcon sx={{ minWidth: 28 }}><ContentCopyIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                  <ListItemText primary="Copy markdown" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                </MenuItem>
+                {isOwner && <Divider sx={{ my: 0.5 }} />}
+                {isOwner && (
+                  <MenuItem onClick={handleEditClick} sx={{ py: 0.5 }}>
+                    <ListItemIcon sx={{ minWidth: 28 }}><EditIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                    <ListItemText primary="Edit" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                  </MenuItem>
+                )}
+                {isOwner && (
+                  <MenuItem onClick={handleDeleteClick} sx={{ py: 0.5, color: "error.main" }}>
+                    <ListItemIcon sx={{ minWidth: 28, color: "error.main" }}><DeleteIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                    <ListItemText primary="Delete" primaryTypographyProps={{ fontSize: "0.75rem", color: "error.main" }} />
+                  </MenuItem>
+                )}
+              </Menu>
             </Box>
           )}
         </Box>
@@ -344,7 +437,6 @@ function DiffRow({
         borderColor: "divider",
         minHeight: 28,
         bgcolor: bgStyle,
-        textDecoration: LINE_STYLES[line.type].textDecoration,
       }}
     >
       {/* Code Side Column */}
@@ -496,6 +588,7 @@ function DiffRow({
                   currentUserLogin={currentUserLogin}
                   onEdit={onEditComment}
                   onDelete={onDeleteComment}
+                  onQuoteReply={(body) => setReplyBody((prev) => (prev ? prev + "\n" : "") + `> ${body}\n\n`)}
                 />
 
                 {/* Nested Replies */}
@@ -506,6 +599,7 @@ function DiffRow({
                       currentUserLogin={currentUserLogin}
                       onEdit={onEditComment}
                       onDelete={onDeleteComment}
+                      onQuoteReply={(body) => setReplyBody((prev) => (prev ? prev + "\n" : "") + `> ${body}\n\n`)}
                     />
                   </Box>
                 ))}
