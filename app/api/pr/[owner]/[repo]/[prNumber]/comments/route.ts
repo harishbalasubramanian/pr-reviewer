@@ -72,7 +72,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       const createdComment = await githubFetch<GitHubPRComment>(
-        `/repos/${owner}/${repo}/pulls/comments/${replyToIdParsed}/replies`,
+        `/repos/${owner}/${repo}/pulls/${prNumParsed}/comments/${replyToIdParsed}/replies`,
         session.accessToken,
         {
           method: "POST",
