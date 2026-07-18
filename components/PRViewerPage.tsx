@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import AppBar from "@mui/material/AppBar";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
@@ -11,13 +12,16 @@ import Typography from "@mui/material/Typography";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import MergeConflictBanner from "@/components/MergeConflictBanner";
-import type { GitHubPullRequest } from "@/types/github";
+import FileSidebar from "@/components/FileSidebar";
+import FilePanel from "@/components/FilePanel";
+import type { GitHubPullRequest, GitHubPRFile } from "@/types/github";
 
 interface PRViewerPageProps {
   owner: string;
   repo: string;
   prNumber: number;
   pr: GitHubPullRequest;
+  files: GitHubPRFile[];
   userLogin: string;
   userAvatarUrl: string;
 }
@@ -37,11 +41,15 @@ export default function PRViewerPage({
   repo,
   prNumber,
   pr,
+  files,
   userLogin,
   userAvatarUrl,
 }: PRViewerPageProps) {
+  const [selectedFile, setSelectedFile] = useState<GitHubPRFile | null>(null);
+
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
+    <Box sx={{ minHeight: "100vh", bgcolor: "background.default", display: "flex", flexDirection: "column" }}>
+      {/* Top bar */}
       <AppBar
         position="static"
         elevation={0}
@@ -69,11 +77,7 @@ export default function PRViewerPage({
           </Link>
 
           <GitHubIcon sx={{ color: "text.secondary", fontSize: 18 }} />
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ flexGrow: 1 }}
-          >
+          <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
             {owner}/{repo} <strong>#{prNumber}</strong>
           </Typography>
 
@@ -83,39 +87,28 @@ export default function PRViewerPage({
           </Typography>
 
           <form action="/api/auth/logout" method="POST">
-            <Button
-              type="submit"
-              size="small"
-              variant="outlined"
-              sx={{ textTransform: "none", ml: 1 }}
-            >
+            <Button type="submit" size="small" variant="outlined" sx={{ textTransform: "none", ml: 1 }}>
               Sign out
             </Button>
           </form>
         </Toolbar>
       </AppBar>
 
-      <Box sx={{ maxWidth: 960, mx: "auto", px: 3, py: 4 }}>
-        {/* PR title and metadata */}
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1.5 }}>
-            <PRStatusChip pr={pr} />
-            <Typography variant="h5" component="h1" fontWeight={600} color="text.primary">
-              {pr.title}
-            </Typography>
-          </Box>
+      {/* PR header: title, author, branch, conflict banner */}
+      <Box sx={{ px: 3, py: 2.5, borderBottom: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
+          <PRStatusChip pr={pr} />
+          <Typography variant="h6" component="h1" fontWeight={600} color="text.primary">
+            {pr.title}
+          </Typography>
+        </Box>
 
-          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-            <Avatar
-              src={pr.user.avatar_url}
-              alt={pr.user.login}
-              sx={{ width: 20, height: 20 }}
-            />
-            <Typography variant="body2" color="text.secondary">
-              <strong>{pr.user.login}</strong> wants to merge{" "}
-              <code>{pr.head.ref}</code> into <code>{pr.base.ref}</code>
-            </Typography>
-          </Box>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
+          <Avatar src={pr.user.avatar_url} alt={pr.user.login} sx={{ width: 18, height: 18 }} />
+          <Typography variant="body2" color="text.secondary">
+            <strong>{pr.user.login}</strong> wants to merge{" "}
+            <code>{pr.head.ref}</code> into <code>{pr.base.ref}</code>
+          </Typography>
         </Box>
 
         <MergeConflictBanner
@@ -125,21 +118,17 @@ export default function PRViewerPage({
           initialMergeable={pr.mergeable}
           initialMergeableState={pr.mergeable_state}
         />
+      </Box>
 
-        {/* Placeholder for file list sidebar + diff viewer (PR 3 and 4) */}
-        <Box
-          sx={{
-            border: "1px dashed",
-            borderColor: "divider",
-            borderRadius: 2,
-            p: 4,
-            textAlign: "center",
-            color: "text.secondary",
-          }}
-        >
-          <Typography variant="body2">
-            File list and diff viewer coming in the next PRs.
-          </Typography>
+      {/* Two-column body: sidebar + file panel */}
+      <Box sx={{ display: "flex", flexGrow: 1, overflow: "hidden" }}>
+        <FileSidebar
+          files={files}
+          selectedFile={selectedFile}
+          onSelectFile={setSelectedFile}
+        />
+        <Box sx={{ flexGrow: 1, overflowY: "auto" }}>
+          <FilePanel file={selectedFile} />
         </Box>
       </Box>
     </Box>

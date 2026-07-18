@@ -3,7 +3,7 @@ import { getIronSession } from "iron-session";
 import { redirect } from "next/navigation";
 import { sessionOptions, type SessionData } from "@/lib/session";
 import { githubFetch, GitHubApiError } from "@/lib/github";
-import type { GitHubPullRequest } from "@/types/github";
+import type { GitHubPullRequest, GitHubPRFile } from "@/types/github";
 import PRViewerPage from "@/components/PRViewerPage";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -23,11 +23,20 @@ export default async function PRPage({ params }: PageProps) {
   const { owner, repo, prNumber } = await params;
 
   let pr: GitHubPullRequest;
+  let files: GitHubPRFile[];
+
   try {
-    pr = await githubFetch<GitHubPullRequest>(
-      `/repos/${owner}/${repo}/pulls/${prNumber}`,
-      session.accessToken
-    );
+    // Fetch PR metadata and file list in parallel to avoid sequential round trips.
+    [pr, files] = await Promise.all([
+      githubFetch<GitHubPullRequest>(
+        `/repos/${owner}/${repo}/pulls/${prNumber}`,
+        session.accessToken
+      ),
+      githubFetch<GitHubPRFile[]>(
+        `/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100`,
+        session.accessToken
+      ),
+    ]);
   } catch (err) {
     if (err instanceof GitHubApiError && (err.status === 403 || err.status === 404)) {
       return (
@@ -47,6 +56,7 @@ export default async function PRPage({ params }: PageProps) {
       repo={repo}
       prNumber={parseInt(prNumber, 10)}
       pr={pr}
+      files={files}
       userLogin={session.login}
       userAvatarUrl={session.avatarUrl}
     />
