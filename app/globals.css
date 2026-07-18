@@ -1,0 +1,13 @@
+/* Global resets only — component styles live in MUI sx props and the theme. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
