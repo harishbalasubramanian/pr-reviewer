@@ -11,10 +11,21 @@ import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import GitHubIcon from "@mui/icons-material/GitHub";
+import RefreshIcon from "@mui/icons-material/Refresh";
+import { keyframes } from "@mui/system";
 import MergeConflictBanner from "@/components/MergeConflictBanner";
 import FileSidebar from "@/components/FileSidebar";
 import FilePanel from "@/components/FilePanel";
 import type { GitHubPullRequest, GitHubPRFile, GitHubPRComment, CommentSelectionRange } from "@/types/github";
+
+const spin = keyframes`
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+`;
 
 interface PRViewerPageProps {
   owner: string;
@@ -47,19 +58,60 @@ export default function PRViewerPage({
   userLogin,
   userAvatarUrl,
 }: PRViewerPageProps) {
+  const [prState, setPrState] = useState<GitHubPullRequest>(pr);
+  const [filesState, setFilesState] = useState<GitHubPRFile[]>(files);
   const [selectedFile, setSelectedFile] = useState<GitHubPRFile | null>(null);
   const [comments, setComments] = useState<GitHubPRComment[]>(initialComments);
   const [selectedRange, setSelectedRange] = useState<CommentSelectionRange | null>(null);
+  const [snapshotHeadSha, setSnapshotHeadSha] = useState<string>(pr.head.sha);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchComments = async () => {
     try {
-      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments`);
+      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?t=${Date.now()}`);
       if (res.ok) {
         const data = await res.json();
         setComments(data);
       }
     } catch (err) {
       console.error("Failed to fetch comments:", err);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const timestamp = Date.now();
+      const [prRes, filesRes, commentsRes] = await Promise.all([
+        fetch(`/api/pr/${owner}/${repo}/${prNumber}?t=${timestamp}`),
+        fetch(`/api/pr/${owner}/${repo}/${prNumber}/files?t=${timestamp}`),
+        fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?t=${timestamp}`),
+      ]);
+
+      if (!prRes.ok || !filesRes.ok || !commentsRes.ok) {
+        throw new Error("Failed to re-fetch one or more PR resources");
+      }
+
+      const freshPr = await prRes.json();
+      const freshFiles = await filesRes.json();
+      const freshComments = await commentsRes.json();
+
+      setPrState(freshPr);
+      setFilesState(freshFiles);
+      setComments(freshComments);
+      setSnapshotHeadSha(freshPr.head.sha);
+
+      // Keep active file selected if it still exists in the new file list
+      if (selectedFile) {
+        const updatedFile = freshFiles.find((f: GitHubPRFile) => f.filename === selectedFile.filename);
+        setSelectedFile(updatedFile || null);
+      }
+      setSelectedRange(null);
+    } catch (err) {
+      console.error("Refresh failed:", err);
+      alert("Failed to refresh. Please try again.");
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -78,7 +130,7 @@ export default function PRViewerPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...payload,
-          commit_id: pr.head.sha,
+          commit_id: snapshotHeadSha,
         }),
       });
 
@@ -188,17 +240,27 @@ export default function PRViewerPage({
       {/* PR header: title, author, branch, conflict banner */}
       <Box sx={{ px: 3, py: 2.5, borderBottom: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}>
         <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, mb: 1 }}>
-          <PRStatusChip pr={pr} />
-          <Typography variant="h6" component="h1" fontWeight={600} color="text.primary">
-            {pr.title}
+          <PRStatusChip pr={prState} />
+          <Typography variant="h6" component="h1" fontWeight={600} color="text.primary" sx={{ flexGrow: 1 }}>
+            {prState.title}
           </Typography>
+          <Button
+            size="small"
+            variant="outlined"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            startIcon={<RefreshIcon sx={{ animation: refreshing ? `${spin} 1s linear infinite` : "none" }} />}
+            sx={{ textTransform: "none", borderRadius: 2 }}
+          >
+            {refreshing ? "Refreshing..." : "Refresh"}
+          </Button>
         </Box>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-          <Avatar src={pr.user.avatar_url} alt={pr.user.login} sx={{ width: 18, height: 18 }} />
+          <Avatar src={prState.user.avatar_url} alt={prState.user.login} sx={{ width: 18, height: 18 }} />
           <Typography variant="body2" color="text.secondary">
-            <strong>{pr.user.login}</strong> wants to merge{" "}
-            <code>{pr.head.ref}</code> into <code>{pr.base.ref}</code>
+            <strong>{prState.user.login}</strong> wants to merge{" "}
+            <code>{prState.head.ref}</code> into <code>{prState.base.ref}</code>
           </Typography>
         </Box>
 
@@ -206,15 +268,15 @@ export default function PRViewerPage({
           owner={owner}
           repo={repo}
           prNumber={prNumber}
-          initialMergeable={pr.mergeable}
-          initialMergeableState={pr.mergeable_state}
+          initialMergeable={prState.mergeable}
+          initialMergeableState={prState.mergeable_state}
         />
       </Box>
 
       {/* Two-column body: sidebar + file panel with inline comments gutter */}
       <Box sx={{ display: "flex", flexGrow: 1, overflow: "hidden" }}>
         <FileSidebar
-          files={files}
+          files={filesState}
           selectedFile={selectedFile}
           onSelectFile={(file) => {
             setSelectedFile(file);

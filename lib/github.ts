@@ -32,6 +32,7 @@ export async function githubFetch<T>(
 
   const response = await fetch(url, {
     ...options,
+    cache: "no-store",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/vnd.github+json",
