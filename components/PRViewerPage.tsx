@@ -120,9 +120,7 @@ export default function PRViewerPage({
       const [prRes, filesRes, commentsRes] = await Promise.all([
         fetch(`/api/pr/${owner}/${repo}/${prNumber}?t=${timestamp}`),
         fetch(`/api/pr/${owner}/${repo}/${prNumber}/files?t=${timestamp}`),
-        fetch(`/api/pr/[owner]/[repo]/[prNumber]/comments?t=${timestamp}`).catch(() =>
-          fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?t=${timestamp}`)
-        ),
+        fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?t=${timestamp}`),
       ]);
 
       if (!prRes.ok || !filesRes.ok || !commentsRes.ok) {
