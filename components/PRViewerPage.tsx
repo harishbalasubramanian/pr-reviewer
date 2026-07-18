@@ -14,7 +14,6 @@ import GitHubIcon from "@mui/icons-material/GitHub";
 import MergeConflictBanner from "@/components/MergeConflictBanner";
 import FileSidebar from "@/components/FileSidebar";
 import FilePanel from "@/components/FilePanel";
-import CommentsPanel from "@/components/CommentsPanel";
 import type { GitHubPullRequest, GitHubPRFile, GitHubPRComment, CommentSelectionRange } from "@/types/github";
 
 interface PRViewerPageProps {
@@ -51,7 +50,6 @@ export default function PRViewerPage({
   const [selectedFile, setSelectedFile] = useState<GitHubPRFile | null>(null);
   const [comments, setComments] = useState<GitHubPRComment[]>(initialComments);
   const [selectedRange, setSelectedRange] = useState<CommentSelectionRange | null>(null);
-  const [focusedThreadId, setFocusedThreadId] = useState<number | null>(null);
 
   const fetchComments = async () => {
     try {
@@ -97,32 +95,48 @@ export default function PRViewerPage({
     }
   };
 
-  const handleJumpToLine = (line: number, side: "LEFT" | "RIGHT") => {
-    const rowId = `diff-row-${side.toLowerCase()}-${line}`;
-    const el = document.getElementById(rowId);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      
-      // Temporary yellow-orange flashing effect for premium feedback
-      el.style.backgroundColor = "rgba(255, 235, 59, 0.35)";
-      setTimeout(() => {
-        el.style.backgroundColor = "";
-      }, 1500);
+  const handleEditComment = async (commentId: number, body: string) => {
+    try {
+      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment_id: commentId, body }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || "Failed to edit comment");
+      }
+
+      await fetchComments();
+    } catch (err) {
+      console.error("Error editing comment:", err);
+      alert(err instanceof Error ? err.message : "Failed to edit comment");
+      throw err;
     }
   };
 
-  const handleSelectCommentThread = (comment: GitHubPRComment) => {
-    setFocusedThreadId(comment.id);
-    
-    // Auto-scroll the comments panel to show the highlighted thread
-    // Wait for the panel state/rendering to catch up
-    setTimeout(() => {
-      const commentEl = document.getElementById(`diff-row-${comment.side?.toLowerCase()}-${comment.line}`);
-      if (commentEl) {
-        commentEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  const handleDeleteComment = async (commentId: number) => {
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
+
+    try {
+      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?comment_id=${commentId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || "Failed to delete comment");
       }
-    }, 100);
+
+      await fetchComments();
+    } catch (err) {
+      console.error("Error deleting comment:", err);
+      alert(err instanceof Error ? err.message : "Failed to delete comment");
+      throw err;
+    }
   };
+
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", display: "flex", flexDirection: "column" }}>
@@ -197,7 +211,7 @@ export default function PRViewerPage({
         />
       </Box>
 
-      {/* Three-column body: sidebar + file panel + comments panel */}
+      {/* Two-column body: sidebar + file panel with inline comments gutter */}
       <Box sx={{ display: "flex", flexGrow: 1, overflow: "hidden" }}>
         <FileSidebar
           files={files}
@@ -205,7 +219,6 @@ export default function PRViewerPage({
           onSelectFile={(file) => {
             setSelectedFile(file);
             setSelectedRange(null); // Clear selection state when switching files
-            setFocusedThreadId(null);
           }}
         />
         
@@ -215,22 +228,12 @@ export default function PRViewerPage({
             selectedRange={selectedRange}
             onSelectRange={setSelectedRange}
             comments={comments}
-            onSelectCommentThread={handleSelectCommentThread}
+            currentUserLogin={userLogin}
+            onPostComment={handlePostComment}
+            onEditComment={handleEditComment}
+            onDeleteComment={handleDeleteComment}
           />
         </Box>
-
-        {selectedFile && (
-          <CommentsPanel
-            comments={comments}
-            selectedFile={selectedFile.filename}
-            selectedRange={selectedRange}
-            onClearRange={() => setSelectedRange(null)}
-            onPostComment={handlePostComment}
-            onJumpToLine={handleJumpToLine}
-            focusedThreadId={focusedThreadId}
-            onClearFocusedThread={() => setFocusedThreadId(null)}
-          />
-        )}
       </Box>
     </Box>
   );

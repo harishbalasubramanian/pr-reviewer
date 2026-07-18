@@ -108,3 +108,82 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
   }
 }
+
+// PATCH /api/pr/[owner]/[repo]/[prNumber]/comments
+// Edits an existing review comment.
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
+  const cookieStore = await cookies();
+  const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
+
+  if (!session.accessToken) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const { owner, repo } = await params;
+
+  try {
+    const bodyJson = await request.json();
+    const { comment_id, body } = bodyJson;
+
+    if (!comment_id || !body || typeof body !== "string" || body.trim() === "") {
+      return NextResponse.json({ error: "Comment ID and body are required" }, { status: 400 });
+    }
+
+    const updatedComment = await githubFetch<GitHubPRComment>(
+      `/repos/${owner}/${repo}/pulls/comments/${comment_id}`,
+      session.accessToken,
+      {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/vnd.github+json",
+        },
+        body: JSON.stringify({ body }),
+      }
+    );
+
+    return NextResponse.json(updatedComment);
+  } catch (err) {
+    if (err instanceof GitHubApiError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
+  }
+}
+
+// DELETE /api/pr/[owner]/[repo]/[prNumber]/comments
+// Deletes an existing review comment.
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
+  const cookieStore = await cookies();
+  const session = await getIronSession<SessionData>(cookieStore, sessionOptions);
+
+  if (!session.accessToken) {
+    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  }
+
+  const { owner, repo } = await params;
+
+  try {
+    const { searchParams } = new URL(request.url);
+    const comment_id = searchParams.get("comment_id");
+
+    if (!comment_id) {
+      return NextResponse.json({ error: "Comment ID is required" }, { status: 400 });
+    }
+
+    await githubFetch<void>(
+      `/repos/${owner}/${repo}/pulls/comments/${comment_id}`,
+      session.accessToken,
+      {
+        method: "DELETE",
+      }
+    );
+
+    return new NextResponse(null, { status: 204 }); // 204 No Content is standard for delete success
+  } catch (err) {
+    if (err instanceof GitHubApiError) {
+      return NextResponse.json({ error: err.message }, { status: err.status });
+    }
+    return NextResponse.json({ error: "Unexpected error" }, { status: 500 });
+  }
+}
+

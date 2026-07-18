@@ -12,7 +12,18 @@ interface FilePanelProps {
   selectedRange: CommentSelectionRange | null;
   onSelectRange: (range: CommentSelectionRange | null) => void;
   comments: GitHubPRComment[];
-  onSelectCommentThread: (comment: GitHubPRComment) => void;
+  currentUserLogin: string;
+  onPostComment: (payload: {
+    body: string;
+    path?: string;
+    line?: number;
+    side?: "LEFT" | "RIGHT";
+    start_line?: number | null;
+    start_side?: "LEFT" | "RIGHT" | null;
+    in_reply_to_id?: number;
+  }) => Promise<void>;
+  onEditComment: (commentId: number, body: string) => Promise<void>;
+  onDeleteComment: (commentId: number) => Promise<void>;
 }
 
 function EmptyState() {
@@ -41,7 +52,10 @@ export default function FilePanel({
   selectedRange,
   onSelectRange,
   comments,
-  onSelectCommentThread,
+  currentUserLogin,
+  onPostComment,
+  onEditComment,
+  onDeleteComment,
 }: FilePanelProps) {
   if (!file) return <EmptyState />;
 
@@ -52,7 +66,10 @@ export default function FilePanel({
       selectedRange={selectedRange}
       onSelectRange={onSelectRange}
       comments={comments}
-      onSelectCommentThread={onSelectCommentThread}
+      currentUserLogin={currentUserLogin}
+      onPostComment={onPostComment}
+      onEditComment={onEditComment}
+      onDeleteComment={onDeleteComment}
     />
   );
 }
