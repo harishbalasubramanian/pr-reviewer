@@ -2,6 +2,7 @@
 
 import "highlight.js/styles/github.css";
 
+import { useState } from "react";
 import hljs from "highlight.js/lib/common";
 import type { ExtraProps } from "react-markdown";
 import ReactMarkdown from "react-markdown";
@@ -10,14 +11,31 @@ import Box from "@mui/material/Box";
 import Link from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import { parsePatch, type DiffLine, type DiffHunk } from "@/lib/diff";
+import Avatar from "@mui/material/Avatar";
+import Button from "@mui/material/Button";
+import Card from "@mui/material/Card";
+import CardContent from "@mui/material/CardContent";
+import Divider from "@mui/material/Divider";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import CloseIcon from "@mui/icons-material/Close";
+import CheckIcon from "@mui/icons-material/Check";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import LinkIcon from "@mui/icons-material/Link";
+import FormatQuoteIcon from "@mui/icons-material/FormatQuote";
+import Menu from "@mui/material/Menu";
+import MenuItem from "@mui/material/MenuItem";
+import ListItemIcon from "@mui/material/ListItemIcon";
+import ListItemText from "@mui/material/ListItemText";
+import { parsePatch, type DiffLine } from "@/lib/diff";
 import { isMarkdownFile } from "@/lib/github";
-import type { GitHubPRFile } from "@/types/github";
+import type { GitHubPRFile, GitHubPRComment, CommentSelectionRange } from "@/types/github";
 
 // --- Content renderers ---
 
-// Suppress react-markdown's default <p> wrapper so inline content stays on one row.
-// react-markdown passes HTMLAttributes + ExtraProps to custom components.
 const markdownComponents = {
   p: ({ children }: React.HTMLAttributes<HTMLParagraphElement> & ExtraProps) => (
     <span>{children}</span>
@@ -32,9 +50,6 @@ function MarkdownLineContent({ content }: { content: string }) {
   );
 }
 
-// Renders a single line of code with highlight.js syntax highlighting.
-// Per-line highlighting has a known limitation: multi-line constructs (block comments,
-// template literals) may not be correctly colored. Acceptable for a diff viewer.
 function CodeLineContent({
   content,
   language,
@@ -43,7 +58,6 @@ function CodeLineContent({
   language: string | null;
 }) {
   if (!language || !hljs.getLanguage(language)) {
-    // Unknown language — render plain monospace.
     return <>{content}</>;
   }
 
@@ -52,8 +66,6 @@ function CodeLineContent({
   return (
     <span
       className="hljs"
-      // highlight.js returns safe escaped HTML — dangerouslySetInnerHTML is the
-      // standard pattern for embedding its output in React.
       dangerouslySetInnerHTML={{ __html: highlighted.value }}
     />
   );
@@ -64,9 +76,9 @@ function CodeLineContent({
 const LINE_NUM_WIDTH = 48;
 const INDICATOR_WIDTH = 24;
 
-const LINE_STYLES: Record<DiffLine["type"], object> = {
+const LINE_STYLES: Record<DiffLine["type"], { bgcolor?: string }> = {
   added: { bgcolor: "rgba(35, 134, 54, 0.15)" },
-  removed: { bgcolor: "rgba(248, 81, 73, 0.15)", textDecoration: "line-through" },
+  removed: { bgcolor: "rgba(248, 81, 73, 0.15)" },
   context: {},
 };
 
@@ -124,63 +136,522 @@ function HunkHeader({ header }: { header: string }) {
   );
 }
 
+interface InlineCommentCardProps {
+  comment: GitHubPRComment;
+  currentUserLogin: string;
+  onEdit: (commentId: number, body: string) => Promise<void>;
+  onDelete: (commentId: number) => Promise<void>;
+  onQuoteReply?: (body: string) => void;
+}
+
+function InlineCommentCard({
+  comment,
+  currentUserLogin,
+  onEdit,
+  onDelete,
+  onQuoteReply,
+}: InlineCommentCardProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editBody, setEditBody] = useState(comment.body);
+  const [submitting, setSubmitting] = useState(false);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<null | HTMLElement>(null);
+
+  const handleSave = async () => {
+    if (!editBody.trim()) return;
+    setSubmitting(true);
+    try {
+      await onEdit(comment.id, editBody);
+      setIsEditing(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const isOwner = comment.user.login === currentUserLogin;
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLButtonElement>) => {
+    setMenuAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setMenuAnchorEl(null);
+  };
+
+  const handleCopyLink = async () => {
+    handleMenuClose();
+    try {
+      await navigator.clipboard.writeText(comment.html_url);
+    } catch (err) {
+      console.error("Failed to copy link:", err);
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    handleMenuClose();
+    try {
+      await navigator.clipboard.writeText(comment.body);
+    } catch (err) {
+      console.error("Failed to copy markdown:", err);
+    }
+  };
+
+  const handleQuoteReplyClick = () => {
+    handleMenuClose();
+    if (onQuoteReply) {
+      onQuoteReply(comment.body);
+    }
+  };
+
+  const handleEditClick = () => {
+    handleMenuClose();
+    setIsEditing(true);
+  };
+
+  const handleDeleteClick = async () => {
+    handleMenuClose();
+    await onDelete(comment.id);
+  };
+
+  return (
+    <Box sx={{ display: "flex", gap: 1, mb: 1.5, position: "relative" }}>
+      <Avatar src={comment.user.avatar_url} alt={comment.user.login} sx={{ width: 24, height: 24 }} />
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <Typography variant="caption" fontWeight={600} noWrap>
+            {comment.user.login}
+          </Typography>
+          <Typography variant="caption" color="text.disabled" sx={{ fontSize: "0.65rem" }}>
+            {new Date(comment.created_at).toLocaleDateString()}
+          </Typography>
+          
+          {/* Actions Menu */}
+          {!isEditing && (
+            <Box sx={{ ml: "auto" }}>
+              <IconButton size="small" onClick={handleMenuOpen} sx={{ p: 0.25 }}>
+                <MoreHorizIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+              <Menu
+                anchorEl={menuAnchorEl}
+                open={Boolean(menuAnchorEl)}
+                onClose={handleMenuClose}
+                transformOrigin={{ horizontal: "right", vertical: "top" }}
+                anchorOrigin={{ horizontal: "right", vertical: "bottom" }}
+              >
+                {onQuoteReply && (
+                  <MenuItem onClick={handleQuoteReplyClick} sx={{ py: 0.5 }}>
+                    <ListItemIcon sx={{ minWidth: 28 }}><FormatQuoteIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                    <ListItemText primary="Quote reply" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                  </MenuItem>
+                )}
+                <MenuItem onClick={handleCopyLink} sx={{ py: 0.5 }}>
+                  <ListItemIcon sx={{ minWidth: 28 }}><LinkIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                  <ListItemText primary="Copy link" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                </MenuItem>
+                <MenuItem onClick={handleCopyMarkdown} sx={{ py: 0.5 }}>
+                  <ListItemIcon sx={{ minWidth: 28 }}><ContentCopyIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                  <ListItemText primary="Copy markdown" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                </MenuItem>
+                {isOwner && <Divider sx={{ my: 0.5 }} />}
+                {isOwner && (
+                  <MenuItem onClick={handleEditClick} sx={{ py: 0.5 }}>
+                    <ListItemIcon sx={{ minWidth: 28 }}><EditIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                    <ListItemText primary="Edit" primaryTypographyProps={{ fontSize: "0.75rem" }} />
+                  </MenuItem>
+                )}
+                {isOwner && (
+                  <MenuItem onClick={handleDeleteClick} sx={{ py: 0.5, color: "error.main" }}>
+                    <ListItemIcon sx={{ minWidth: 28, color: "error.main" }}><DeleteIcon sx={{ fontSize: 14 }} /></ListItemIcon>
+                    <ListItemText primary="Delete" primaryTypographyProps={{ fontSize: "0.75rem", color: "error.main" }} />
+                  </MenuItem>
+                )}
+              </Menu>
+            </Box>
+          )}
+        </Box>
+
+        {isEditing ? (
+          <Box sx={{ mt: 1 }}>
+            <TextField
+              fullWidth
+              multiline
+              rows={2}
+              size="small"
+              value={editBody}
+              onChange={(e) => setEditBody(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleSave();
+                }
+              }}
+              disabled={submitting}
+              sx={{ "& .MuiInputBase-root": { fontSize: "0.75rem" } }}
+            />
+            <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 0.5, mt: 0.5 }}>
+              <IconButton size="small" onClick={() => setIsEditing(false)} disabled={submitting}>
+                <CloseIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+              <IconButton size="small" color="primary" onClick={handleSave} disabled={submitting || !editBody.trim()}>
+                <CheckIcon sx={{ fontSize: 14 }} />
+              </IconButton>
+            </Box>
+          </Box>
+        ) : (
+          <Box sx={{ fontSize: "0.75rem", mt: 0.5, "& p": { m: 0 } }}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {comment.body}
+            </ReactMarkdown>
+          </Box>
+        )}
+      </Box>
+    </Box>
+  );
+}
+
+interface DiffRowProps {
+  line: DiffLine;
+  isMarkdown: boolean;
+  language: string | null;
+  index: number;
+  path: string;
+  selectedRange: CommentSelectionRange | null;
+  onSelectRange: (range: CommentSelectionRange | null) => void;
+  comments: GitHubPRComment[];
+  currentUserLogin: string;
+  onPostComment: (payload: {
+    body: string;
+    path?: string;
+    line?: number;
+    side?: "LEFT" | "RIGHT";
+    start_line?: number | null;
+    start_side?: "LEFT" | "RIGHT" | null;
+    in_reply_to_id?: number;
+  }) => Promise<void>;
+  onEditComment: (commentId: number, body: string) => Promise<void>;
+  onDeleteComment: (commentId: number) => Promise<void>;
+  hasAnyCommentsOrSelection: boolean;
+}
+
 function DiffRow({
   line,
   isMarkdown,
   language,
-}: {
-  line: DiffLine;
-  isMarkdown: boolean;
-  language: string | null;
-}) {
+  index,
+  path,
+  selectedRange,
+  onSelectRange,
+  comments,
+  currentUserLogin,
+  onPostComment,
+  onEditComment,
+  onDeleteComment,
+  hasAnyCommentsOrSelection,
+}: DiffRowProps) {
+  const [replyBody, setReplyBody] = useState("");
+  const [newCommentBody, setNewCommentBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const side = line.type === "removed" ? "LEFT" : "RIGHT";
+  const lineNumber = side === "LEFT" ? line.oldLineNumber : line.newLineNumber;
+
+  // Check if this row is currently selected for a new comment
+  const isSelected =
+    selectedRange &&
+    selectedRange.path === path &&
+    index >= selectedRange.startIndex &&
+    index <= selectedRange.endIndex;
+
+  // Filter comments for this specific line
+  const rowComments = lineNumber
+    ? comments.filter(
+        (c) =>
+          c.path === path &&
+          c.line === lineNumber &&
+          c.side === side
+      )
+    : [];
+
+  const rowRoots = rowComments.filter((c) => !c.in_reply_to_id);
+  const rowReplies = rowComments.filter((c) => c.in_reply_to_id);
+
+  const threads = rowRoots.map((root) => {
+    const replies = rowReplies
+      .filter((r) => r.in_reply_to_id === root.id)
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    return { root, replies };
+  });
+
+  const rowId = lineNumber ? `diff-row-${side.toLowerCase()}-${lineNumber}` : undefined;
+
+  const bgStyle = isSelected
+    ? "rgba(25, 118, 210, 0.12)"
+    : LINE_STYLES[line.type].bgcolor || "transparent";
+
+  // Submit new reply
+  const handleReplySubmit = async (rootId: number) => {
+    if (!replyBody.trim()) return;
+    setSubmitting(true);
+    try {
+      await onPostComment({
+        body: replyBody,
+        in_reply_to_id: rootId,
+      });
+      setReplyBody("");
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Submit new thread
+  const handleNewThreadSubmit = async () => {
+    if (!newCommentBody.trim() || !selectedRange) return;
+    setSubmitting(true);
+    try {
+      await onPostComment({
+        body: newCommentBody,
+        path: selectedRange.path,
+        line: selectedRange.line,
+        side: selectedRange.side,
+        start_line: selectedRange.start_line,
+        start_side: selectedRange.start_side,
+      });
+      setNewCommentBody("");
+      onSelectRange(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Box
+      id={rowId}
+      className="diff-row"
+      data-index={index}
+      data-line={lineNumber || ""}
+      data-side={side}
+      data-path={path}
       sx={{
         display: "flex",
-        alignItems: "baseline",
-        minHeight: 24,
-        ...LINE_STYLES[line.type],
-        "&:hover": { filter: "brightness(0.97)" },
+        alignItems: "stretch",
+        borderBottom: "1px solid",
+        borderColor: "divider",
+        minHeight: 28,
+        bgcolor: bgStyle,
       }}
     >
-      <LineNumber n={line.oldLineNumber} />
-      <LineNumber n={line.newLineNumber} />
-
+      {/* Code Side Column */}
       <Box
         sx={{
-          width: INDICATOR_WIDTH,
-          flexShrink: 0,
-          textAlign: "center",
-          color: INDICATOR_COLORS[line.type],
-          fontFamily: "monospace",
-          fontSize: "0.8rem",
-          userSelect: "none",
+          flex: 1,
+          display: "flex",
+          alignItems: "baseline",
+          minWidth: 0,
         }}
       >
-        {INDICATOR_CHAR[line.type]}
+        <LineNumber n={line.oldLineNumber} />
+        <LineNumber n={line.newLineNumber} />
+
+        {/* Indicator with Hover "+" comment trigger */}
+        <Box
+          sx={{
+            width: INDICATOR_WIDTH,
+            flexShrink: 0,
+            textAlign: "center",
+            color: INDICATOR_COLORS[line.type],
+            fontFamily: "monospace",
+            fontSize: "0.8rem",
+            userSelect: "none",
+            position: "relative",
+            cursor: "pointer",
+            "&:hover .add-comment-btn": {
+              display: "inline-flex",
+            },
+            "&:hover .indicator-char": {
+              display: "none",
+            },
+          }}
+          onClick={() => {
+            if (!lineNumber) return;
+            onSelectRange({
+              path,
+              line: lineNumber,
+              side,
+              start_line: null,
+              start_side: null,
+              startIndex: index,
+              endIndex: index,
+            });
+          }}
+        >
+          <span className="indicator-char">{INDICATOR_CHAR[line.type]}</span>
+          <Box
+            className="add-comment-btn"
+            sx={{
+              display: "none",
+              position: "absolute",
+              top: 0,
+              left: 0,
+              width: "100%",
+              height: "100%",
+              alignItems: "center",
+              justifyContent: "center",
+              bgcolor: "primary.main",
+              color: "primary.contrastText",
+              borderRadius: 0.5,
+              fontSize: "0.75rem",
+            }}
+          >
+            +
+          </Box>
+        </Box>
+
+        {/* Line Content */}
+        <Box
+          sx={{
+            flexGrow: 1,
+            fontFamily: "monospace",
+            fontSize: "0.8rem",
+            lineHeight: 1.6,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            pr: 2,
+            "& code": { fontSize: "0.75rem" },
+            "& .hljs": { background: "transparent" },
+          }}
+        >
+          {isMarkdown ? (
+            <MarkdownLineContent content={line.content} />
+          ) : (
+            <CodeLineContent content={line.content} language={language} />
+          )}
+        </Box>
       </Box>
 
-      <Box
-        sx={{
-          flexGrow: 1,
-          fontFamily: "monospace",
-          fontSize: "0.8rem",
-          lineHeight: 1.6,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-          pr: 2,
-          "& code": { fontSize: "0.75rem" },
-          // The hljs GitHub theme sets background: white on .hljs — clear it so
-          // the diff row's green/red background isn't obscured.
-          "& .hljs": { background: "transparent" },
-        }}
-      >
-        {isMarkdown ? (
-          <MarkdownLineContent content={line.content} />
-        ) : (
-          <CodeLineContent content={line.content} language={language} />
-        )}
-      </Box>
+      {/* Right Column Gutter for Inline Comments */}
+      {hasAnyCommentsOrSelection && (
+        <Box
+          sx={{
+            width: 380,
+            flexShrink: 0,
+            borderLeft: "1px solid",
+            borderColor: "divider",
+            bgcolor: "background.paper",
+            p: 1.5,
+            display: "flex",
+            flexDirection: "column",
+            gap: 1.5,
+            justifyContent: "center",
+          }}
+        >
+          {/* New Comment Thread Form */}
+          {isSelected && (
+            <Card variant="outlined" sx={{ borderColor: "primary.main", bgcolor: "rgba(25, 118, 210, 0.02)" }}>
+              <Box sx={{ px: 1.5, py: 0.5, bgcolor: "primary.main", color: "primary.contrastText", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <Typography variant="caption" fontWeight={600}>
+                  New Comment
+                </Typography>
+                <IconButton size="small" onClick={() => onSelectRange(null)} sx={{ color: "inherit", p: 0.25 }}>
+                  <CloseIcon sx={{ fontSize: 12 }} />
+                </IconButton>
+              </Box>
+              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={2}
+                  placeholder="Leave a comment... (Markdown ok)"
+                  size="small"
+                  value={newCommentBody}
+                  onChange={(e) => setNewCommentBody(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      handleNewThreadSubmit();
+                    }
+                  }}
+                  disabled={submitting}
+                  sx={{ "& .MuiInputBase-root": { fontSize: "0.75rem" }, mb: 1 }}
+                />
+                <Box sx={{ display: "flex", justifyContent: "flex-end", gap: 1 }}>
+                  <Button size="small" onClick={() => onSelectRange(null)} disabled={submitting} sx={{ fontSize: "0.7rem" }}>
+                    Cancel
+                  </Button>
+                  <Button size="small" variant="contained" onClick={handleNewThreadSubmit} disabled={submitting || !newCommentBody.trim()} sx={{ fontSize: "0.7rem" }}>
+                    Add
+                  </Button>
+                </Box>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Existing Thread Cards */}
+          {threads.map((thread) => (
+            <Card key={thread.root.id} variant="outlined" sx={{ width: "100%" }}>
+              <CardContent sx={{ p: 1.5, "&:last-child": { pb: 1.5 } }}>
+                {/* Root Comment */}
+                <InlineCommentCard
+                  comment={thread.root}
+                  currentUserLogin={currentUserLogin}
+                  onEdit={onEditComment}
+                  onDelete={onDeleteComment}
+                  onQuoteReply={(body) => setReplyBody((prev) => (prev ? prev + "\n" : "") + `> ${body}\n\n`)}
+                />
+
+                {/* Nested Replies */}
+                {thread.replies.map((reply) => (
+                  <Box key={reply.id} sx={{ pl: 2, borderLeft: "1px solid", borderColor: "divider", mt: 1 }}>
+                    <InlineCommentCard
+                      comment={reply}
+                      currentUserLogin={currentUserLogin}
+                      onEdit={onEditComment}
+                      onDelete={onDeleteComment}
+                      onQuoteReply={(body) => setReplyBody((prev) => (prev ? prev + "\n" : "") + `> ${body}\n\n`)}
+                    />
+                  </Box>
+                ))}
+
+                {/* Reply Input Form */}
+                <Divider sx={{ my: 1 }} />
+                <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+                  <TextField
+                    fullWidth
+                    multiline
+                    minRows={1}
+                    maxRows={6}
+                    placeholder="Reply... (Ctrl+Enter to submit)"
+                    size="small"
+                    value={replyBody}
+                    onChange={(e) => setReplyBody(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        handleReplySubmit(thread.root.id);
+                      }
+                    }}
+                    disabled={submitting}
+                    sx={{ "& .MuiInputBase-root": { fontSize: "0.7rem", py: 0.5 } }}
+                  />
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => handleReplySubmit(thread.root.id)}
+                    disabled={submitting || !replyBody.trim()}
+                    sx={{ height: 28, textTransform: "none", fontSize: "0.7rem" }}
+                  >
+                    Reply
+                  </Button>
+                </Box>
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+      )}
     </Box>
   );
 }
@@ -189,16 +660,57 @@ function Hunk({
   hunk,
   isMarkdown,
   language,
+  path,
+  selectedRange,
+  onSelectRange,
+  comments,
+  currentUserLogin,
+  onPostComment,
+  onEditComment,
+  onDeleteComment,
+  hasAnyCommentsOrSelection,
 }: {
-  hunk: DiffHunk;
+  hunk: { header: string; lines: { line: DiffLine; index: number }[] };
   isMarkdown: boolean;
   language: string | null;
+  path: string;
+  selectedRange: CommentSelectionRange | null;
+  onSelectRange: (range: CommentSelectionRange | null) => void;
+  comments: GitHubPRComment[];
+  currentUserLogin: string;
+  onPostComment: (payload: {
+    body: string;
+    path?: string;
+    line?: number;
+    side?: "LEFT" | "RIGHT";
+    start_line?: number | null;
+    start_side?: "LEFT" | "RIGHT" | null;
+    in_reply_to_id?: number;
+  }) => Promise<void>;
+  onEditComment: (commentId: number, body: string) => Promise<void>;
+  onDeleteComment: (commentId: number) => Promise<void>;
+  hasAnyCommentsOrSelection: boolean;
 }) {
   return (
     <Box>
       <HunkHeader header={hunk.header} />
-      {hunk.lines.map((line, i) => (
-        <DiffRow key={i} line={line} isMarkdown={isMarkdown} language={language} />
+      {hunk.lines.map(({ line, index }) => (
+        <DiffRow
+          key={index}
+          index={index}
+          line={line}
+          isMarkdown={isMarkdown}
+          language={language}
+          path={path}
+          selectedRange={selectedRange}
+          onSelectRange={onSelectRange}
+          comments={comments}
+          currentUserLogin={currentUserLogin}
+          onPostComment={onPostComment}
+          onEditComment={onEditComment}
+          onDeleteComment={onDeleteComment}
+          hasAnyCommentsOrSelection={hasAnyCommentsOrSelection}
+        />
       ))}
     </Box>
   );
@@ -228,11 +740,35 @@ function NoPatchAvailable({ file }: { file: GitHubPRFile }) {
 
 interface DiffViewerProps {
   file: GitHubPRFile;
-  // Highlight.js language string for syntax highlighting, or null for plain text.
   language: string | null;
+  selectedRange: CommentSelectionRange | null;
+  onSelectRange: (range: CommentSelectionRange | null) => void;
+  comments: GitHubPRComment[];
+  currentUserLogin: string;
+  onPostComment: (payload: {
+    body: string;
+    path?: string;
+    line?: number;
+    side?: "LEFT" | "RIGHT";
+    start_line?: number | null;
+    start_side?: "LEFT" | "RIGHT" | null;
+    in_reply_to_id?: number;
+  }) => Promise<void>;
+  onEditComment: (commentId: number, body: string) => Promise<void>;
+  onDeleteComment: (commentId: number) => Promise<void>;
 }
 
-export default function DiffViewer({ file, language }: DiffViewerProps) {
+export default function DiffViewer({
+  file,
+  language,
+  selectedRange,
+  onSelectRange,
+  comments,
+  currentUserLogin,
+  onPostComment,
+  onEditComment,
+  onDeleteComment,
+}: DiffViewerProps) {
   if (!file.patch) {
     return <NoPatchAvailable file={file} />;
   }
@@ -240,8 +776,69 @@ export default function DiffViewer({ file, language }: DiffViewerProps) {
   const hunks = parsePatch(file.patch);
   const markdown = isMarkdownFile(file.filename);
 
+  // Pre-calculate indices sequentially across all hunks
+  let globalLineIndex = 0;
+  const hunksWithIndices = hunks.map((hunk) => {
+    const linesWithIndices = hunk.lines.map((line) => {
+      const index = globalLineIndex;
+      globalLineIndex++;
+      return { line, index };
+    });
+    return { ...hunk, lines: linesWithIndices };
+  });
+
+  const handleMouseUp = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      return;
+    }
+
+    const anchor = selection.anchorNode;
+    const focus = selection.focusNode;
+    if (!anchor || !focus) return;
+
+    const anchorRow = anchor.parentElement?.closest(".diff-row") as HTMLElement | null;
+    const focusRow = focus.parentElement?.closest(".diff-row") as HTMLElement | null;
+
+    if (!anchorRow || !focusRow) return;
+
+    const anchorIndex = parseInt(anchorRow.getAttribute("data-index") || "", 10);
+    const focusIndex = parseInt(focusRow.getAttribute("data-index") || "", 10);
+
+    if (isNaN(anchorIndex) || isNaN(focusIndex)) return;
+
+    const startIndex = Math.min(anchorIndex, focusIndex);
+    const endIndex = Math.max(anchorIndex, focusIndex);
+
+    const startEl = startIndex === anchorIndex ? anchorRow : focusRow;
+    const endEl = endIndex === anchorIndex ? anchorRow : focusRow;
+
+    const startLine = parseInt(startEl.getAttribute("data-line") || "", 10);
+    const startSide = startEl.getAttribute("data-side") as "LEFT" | "RIGHT";
+    const endLine = parseInt(endEl.getAttribute("data-line") || "", 10);
+    const endSide = endEl.getAttribute("data-side") as "LEFT" | "RIGHT";
+    const path = startEl.getAttribute("data-path") || "";
+
+    if (isNaN(startLine) || isNaN(endLine)) return;
+
+    onSelectRange({
+      path,
+      line: endLine,
+      side: endSide,
+      start_line: startIndex !== endIndex ? startLine : null,
+      start_side: startIndex !== endIndex ? startSide : null,
+      startIndex,
+      endIndex,
+    });
+  };
+
+  // Determine if this file has comments or active selection to render the gutter
+  const fileComments = comments.filter((c) => c.path === file.filename);
+  const hasSelection = selectedRange && selectedRange.path === file.filename;
+  const hasAnyCommentsOrSelection = fileComments.length > 0 || !!hasSelection;
+
   return (
-    <Box sx={{ overflow: "auto" }}>
+    <Box sx={{ overflow: "auto" }} onMouseUp={handleMouseUp}>
       {/* Sticky file header */}
       <Box
         sx={{
@@ -273,8 +870,22 @@ export default function DiffViewer({ file, language }: DiffViewerProps) {
       </Box>
 
       <Box sx={{ fontSize: "0.8rem" }}>
-        {hunks.map((hunk, i) => (
-          <Hunk key={i} hunk={hunk} isMarkdown={markdown} language={language} />
+        {hunksWithIndices.map((hunk, i) => (
+          <Hunk
+            key={i}
+            hunk={hunk}
+            isMarkdown={markdown}
+            language={language}
+            path={file.filename}
+            selectedRange={selectedRange}
+            onSelectRange={onSelectRange}
+            comments={comments}
+            currentUserLogin={currentUserLogin}
+            onPostComment={onPostComment}
+            onEditComment={onEditComment}
+            onDeleteComment={onDeleteComment}
+            hasAnyCommentsOrSelection={hasAnyCommentsOrSelection}
+          />
         ))}
       </Box>
     </Box>

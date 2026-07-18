@@ -14,7 +14,7 @@ import GitHubIcon from "@mui/icons-material/GitHub";
 import MergeConflictBanner from "@/components/MergeConflictBanner";
 import FileSidebar from "@/components/FileSidebar";
 import FilePanel from "@/components/FilePanel";
-import type { GitHubPullRequest, GitHubPRFile } from "@/types/github";
+import type { GitHubPullRequest, GitHubPRFile, GitHubPRComment, CommentSelectionRange } from "@/types/github";
 
 interface PRViewerPageProps {
   owner: string;
@@ -22,6 +22,7 @@ interface PRViewerPageProps {
   prNumber: number;
   pr: GitHubPullRequest;
   files: GitHubPRFile[];
+  initialComments: GitHubPRComment[];
   userLogin: string;
   userAvatarUrl: string;
 }
@@ -42,10 +43,100 @@ export default function PRViewerPage({
   prNumber,
   pr,
   files,
+  initialComments,
   userLogin,
   userAvatarUrl,
 }: PRViewerPageProps) {
   const [selectedFile, setSelectedFile] = useState<GitHubPRFile | null>(null);
+  const [comments, setComments] = useState<GitHubPRComment[]>(initialComments);
+  const [selectedRange, setSelectedRange] = useState<CommentSelectionRange | null>(null);
+
+  const fetchComments = async () => {
+    try {
+      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments`);
+      if (res.ok) {
+        const data = await res.json();
+        setComments(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch comments:", err);
+    }
+  };
+
+  const handlePostComment = async (payload: {
+    body: string;
+    path?: string;
+    line?: number;
+    side?: "LEFT" | "RIGHT";
+    start_line?: number | null;
+    start_side?: "LEFT" | "RIGHT" | null;
+    in_reply_to_id?: number;
+  }) => {
+    try {
+      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...payload,
+          commit_id: pr.head.sha,
+        }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || "Failed to post comment");
+      }
+
+      await fetchComments();
+    } catch (err) {
+      console.error("Error posting comment:", err);
+      alert(err instanceof Error ? err.message : "Failed to post comment");
+      throw err;
+    }
+  };
+
+  const handleEditComment = async (commentId: number, body: string) => {
+    try {
+      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comment_id: commentId, body }),
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || "Failed to edit comment");
+      }
+
+      await fetchComments();
+    } catch (err) {
+      console.error("Error editing comment:", err);
+      alert(err instanceof Error ? err.message : "Failed to edit comment");
+      throw err;
+    }
+  };
+
+  const handleDeleteComment = async (commentId: number) => {
+    if (!window.confirm("Are you sure you want to delete this comment?")) return;
+
+    try {
+      const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?comment_id=${commentId}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(errorText || "Failed to delete comment");
+      }
+
+      await fetchComments();
+    } catch (err) {
+      console.error("Error deleting comment:", err);
+      alert(err instanceof Error ? err.message : "Failed to delete comment");
+      throw err;
+    }
+  };
+
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default", display: "flex", flexDirection: "column" }}>
@@ -120,15 +211,28 @@ export default function PRViewerPage({
         />
       </Box>
 
-      {/* Two-column body: sidebar + file panel */}
+      {/* Two-column body: sidebar + file panel with inline comments gutter */}
       <Box sx={{ display: "flex", flexGrow: 1, overflow: "hidden" }}>
         <FileSidebar
           files={files}
           selectedFile={selectedFile}
-          onSelectFile={setSelectedFile}
+          onSelectFile={(file) => {
+            setSelectedFile(file);
+            setSelectedRange(null); // Clear selection state when switching files
+          }}
         />
-        <Box sx={{ flexGrow: 1, overflowY: "auto" }}>
-          <FilePanel file={selectedFile} />
+        
+        <Box sx={{ flexGrow: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          <FilePanel
+            file={selectedFile}
+            selectedRange={selectedRange}
+            onSelectRange={setSelectedRange}
+            comments={comments}
+            currentUserLogin={userLogin}
+            onPostComment={handlePostComment}
+            onEditComment={handleEditComment}
+            onDeleteComment={handleDeleteComment}
+          />
         </Box>
       </Box>
     </Box>

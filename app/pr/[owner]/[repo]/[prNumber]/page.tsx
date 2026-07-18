@@ -3,7 +3,7 @@ import { getIronSession } from "iron-session";
 import { redirect } from "next/navigation";
 import { sessionOptions, type SessionData } from "@/lib/session";
 import { githubFetch, GitHubApiError } from "@/lib/github";
-import type { GitHubPullRequest, GitHubPRFile } from "@/types/github";
+import type { GitHubPullRequest, GitHubPRFile, GitHubPRComment } from "@/types/github";
 import PRViewerPage from "@/components/PRViewerPage";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -24,10 +24,11 @@ export default async function PRPage({ params }: PageProps) {
 
   let pr: GitHubPullRequest;
   let files: GitHubPRFile[];
+  let initialComments: GitHubPRComment[];
 
   try {
-    // Fetch PR metadata and file list in parallel to avoid sequential round trips.
-    [pr, files] = await Promise.all([
+    // Fetch PR metadata, files, and comments in parallel to avoid sequential round trips.
+    [pr, files, initialComments] = await Promise.all([
       githubFetch<GitHubPullRequest>(
         `/repos/${owner}/${repo}/pulls/${prNumber}`,
         session.accessToken
@@ -36,6 +37,10 @@ export default async function PRPage({ params }: PageProps) {
         `/repos/${owner}/${repo}/pulls/${prNumber}/files?per_page=100`,
         session.accessToken
       ),
+      githubFetch<GitHubPRComment[]>(
+        `/repos/${owner}/${repo}/pulls/${prNumber}/comments?per_page=100`,
+        session.accessToken
+      ).catch(() => []), // Graceful fallback if fetching comments fails (e.g. scope issue)
     ]);
   } catch (err) {
     if (err instanceof GitHubApiError && (err.status === 403 || err.status === 404)) {
@@ -57,6 +62,7 @@ export default async function PRPage({ params }: PageProps) {
       prNumber={parseInt(prNumber, 10)}
       pr={pr}
       files={files}
+      initialComments={initialComments}
       userLogin={session.login}
       userAvatarUrl={session.avatarUrl}
     />
