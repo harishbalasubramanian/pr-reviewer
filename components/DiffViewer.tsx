@@ -280,6 +280,12 @@ function InlineCommentCard({
               size="small"
               value={editBody}
               onChange={(e) => setEditBody(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleSave();
+                }
+              }}
               disabled={submitting}
               sx={{ "& .MuiInputBase-root": { fontSize: "0.75rem" } }}
             />
@@ -563,6 +569,12 @@ function DiffRow({
                   size="small"
                   value={newCommentBody}
                   onChange={(e) => setNewCommentBody(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      handleNewThreadSubmit();
+                    }
+                  }}
                   disabled={submitting}
                   sx={{ "& .MuiInputBase-root": { fontSize: "0.75rem" }, mb: 1 }}
                 />
@@ -609,12 +621,21 @@ function DiffRow({
                 <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
                   <TextField
                     fullWidth
-                    placeholder="Reply..."
+                    multiline
+                    minRows={1}
+                    maxRows={6}
+                    placeholder="Reply... (Ctrl+Enter to submit)"
                     size="small"
                     value={replyBody}
                     onChange={(e) => setReplyBody(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        handleReplySubmit(thread.root.id);
+                      }
+                    }}
                     disabled={submitting}
-                    sx={{ "& .MuiInputBase-root": { fontSize: "0.7rem", height: 28 } }}
+                    sx={{ "& .MuiInputBase-root": { fontSize: "0.7rem", py: 0.5 } }}
                   />
                   <Button
                     size="small"
