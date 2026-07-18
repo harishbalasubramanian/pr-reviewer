@@ -79,11 +79,31 @@ PRs build on each other in strict order — later PRs assume the earlier ones ar
 **Out of scope for this PR:**
 - Commenting; line selection/highlighting
 
-**Why here:** Core feature of the product. Commenting in PR 5 layers on top of having a rendered diff.
+**Why here:** Core feature of the product. Code file viewer (PR 5) extends this to all file types. Commenting (PR 6) layers on top.
 
 ---
 
-## PR 5 — Inline Commenting & GitHub Comment Sync
+## PR 5 — Code File Diff Viewer
+
+**Goal:** Extend the diff viewer to all file types, not just markdown — using GitHub-style syntax-highlighted rendering for code files.
+
+**Scope:**
+- Remove the "not rendered in-app" placeholder for non-markdown files
+- Route all files with a `patch` field through the unified diff viewer
+- Detect file language from extension and apply syntax highlighting via `highlight.js`
+- Use the GitHub light theme for highlight.js so the styling is familiar
+- Per-line syntax highlighting (accepts multi-line context limitation for MVP)
+- Files with no `patch` (binary, oversized) continue to show the GitHub link fallback
+
+**Out of scope for this PR:**
+- Full-file view (we're still showing only the diff/patch, not the entire file)
+- Whole-file syntax highlighting that respects multi-line constructs across hunk boundaries
+
+**Why here:** Natural extension of PR 4's diff structure — same renderer, different per-line content strategy.
+
+---
+
+## PR 6 — Inline Commenting & GitHub Comment Sync
 
 **Goal:** Let users highlight text in the diff and post a comment that syncs to GitHub as a real PR review comment.
 
@@ -102,11 +122,11 @@ PRs build on each other in strict order — later PRs assume the earlier ones ar
 - Approve / Request Changes review states
 - Batched review submission (can be a follow-up)
 
-**Why here:** Depends on the rendered diff (PR 4) to know what lines exist and how to anchor comments.
+**Why here:** Depends on the rendered diff (PRs 4 & 5) to know what lines exist and how to anchor comments.
 
 ---
 
-## PR 6 — Manual Refresh & Stale-State Handling
+## PR 7 — Manual Refresh & Stale-State Handling
 
 **Goal:** Add a manual refresh action so users can pick up new commits without reloading the page.
 
@@ -130,5 +150,6 @@ PRs build on each other in strict order — later PRs assume the earlier ones ar
 | 2  | PR Access Check & Entry UI | Repo+PR form, access gate, conflict banner |
 | 3  | File List Sidebar | Sidebar with markdown/non-markdown split, caching |
 | 4  | Diff Parsing & Markdown Renderer | Rendered line-level diff for markdown files |
-| 5  | Inline Commenting & GitHub Sync | Highlight → comment → posts to GitHub |
-| 6  | Manual Refresh | Refresh action, cache invalidation, stale comment handling |
+| 5  | Code File Diff Viewer | Syntax-highlighted diff for all file types |
+| 6  | Inline Commenting & GitHub Sync | Highlight → comment → posts to GitHub |
+| 7  | Manual Refresh | Refresh action, cache invalidation, stale comment handling |

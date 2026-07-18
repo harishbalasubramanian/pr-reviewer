@@ -1,5 +1,8 @@
 "use client";
 
+import "highlight.js/styles/github.css";
+
+import hljs from "highlight.js/lib/common";
 import type { ExtraProps } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,7 +11,10 @@ import Link from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import { parsePatch, type DiffLine, type DiffHunk } from "@/lib/diff";
+import { isMarkdownFile } from "@/lib/github";
 import type { GitHubPRFile } from "@/types/github";
+
+// --- Content renderers ---
 
 // Suppress react-markdown's default <p> wrapper so inline content stays on one row.
 // react-markdown passes HTMLAttributes + ExtraProps to custom components.
@@ -18,7 +24,7 @@ const markdownComponents = {
   ),
 };
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownLineContent({ content }: { content: string }) {
   return (
     <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
       {content}
@@ -26,7 +32,35 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-// Fixed-width columns for line numbers — mirrors GitHub's diff table layout.
+// Renders a single line of code with highlight.js syntax highlighting.
+// Per-line highlighting has a known limitation: multi-line constructs (block comments,
+// template literals) may not be correctly colored. Acceptable for a diff viewer.
+function CodeLineContent({
+  content,
+  language,
+}: {
+  content: string;
+  language: string | null;
+}) {
+  if (!language || !hljs.getLanguage(language)) {
+    // Unknown language — render plain monospace.
+    return <>{content}</>;
+  }
+
+  const highlighted = hljs.highlight(content, { language, ignoreIllegals: true });
+
+  return (
+    <span
+      className="hljs"
+      // highlight.js returns safe escaped HTML — dangerouslySetInnerHTML is the
+      // standard pattern for embedding its output in React.
+      dangerouslySetInnerHTML={{ __html: highlighted.value }}
+    />
+  );
+}
+
+// --- Layout constants & style maps ---
+
 const LINE_NUM_WIDTH = 48;
 const INDICATOR_WIDTH = 24;
 
@@ -47,6 +81,8 @@ const INDICATOR_CHAR: Record<DiffLine["type"], string> = {
   removed: "-",
   context: " ",
 };
+
+// --- Sub-components ---
 
 function LineNumber({ n }: { n: number | null }) {
   return (
@@ -81,17 +117,22 @@ function HunkHeader({ header }: { header: string }) {
         borderColor: "divider",
       }}
     >
-      <Typography
-        variant="caption"
-        sx={{ fontFamily: "monospace", color: "text.secondary" }}
-      >
+      <Typography variant="caption" sx={{ fontFamily: "monospace", color: "text.secondary" }}>
         {header}
       </Typography>
     </Box>
   );
 }
 
-function DiffRow({ line }: { line: DiffLine }) {
+function DiffRow({
+  line,
+  isMarkdown,
+  language,
+}: {
+  line: DiffLine;
+  isMarkdown: boolean;
+  language: string | null;
+}) {
   return (
     <Box
       sx={{
@@ -129,20 +170,35 @@ function DiffRow({ line }: { line: DiffLine }) {
           wordBreak: "break-all",
           pr: 2,
           "& code": { fontSize: "0.75rem" },
+          // The hljs GitHub theme sets background: white on .hljs — clear it so
+          // the diff row's green/red background isn't obscured.
+          "& .hljs": { background: "transparent" },
         }}
       >
-        <MarkdownContent content={line.content} />
+        {isMarkdown ? (
+          <MarkdownLineContent content={line.content} />
+        ) : (
+          <CodeLineContent content={line.content} language={language} />
+        )}
       </Box>
     </Box>
   );
 }
 
-function Hunk({ hunk }: { hunk: DiffHunk }) {
+function Hunk({
+  hunk,
+  isMarkdown,
+  language,
+}: {
+  hunk: DiffHunk;
+  isMarkdown: boolean;
+  language: string | null;
+}) {
   return (
     <Box>
       <HunkHeader header={hunk.header} />
       {hunk.lines.map((line, i) => (
-        <DiffRow key={i} line={line} />
+        <DiffRow key={i} line={line} isMarkdown={isMarkdown} language={language} />
       ))}
     </Box>
   );
@@ -168,16 +224,25 @@ function NoPatchAvailable({ file }: { file: GitHubPRFile }) {
   );
 }
 
-export default function DiffViewer({ file }: { file: GitHubPRFile }) {
+// --- Main component ---
+
+interface DiffViewerProps {
+  file: GitHubPRFile;
+  // Highlight.js language string for syntax highlighting, or null for plain text.
+  language: string | null;
+}
+
+export default function DiffViewer({ file, language }: DiffViewerProps) {
   if (!file.patch) {
     return <NoPatchAvailable file={file} />;
   }
 
   const hunks = parsePatch(file.patch);
+  const markdown = isMarkdownFile(file.filename);
 
   return (
     <Box sx={{ overflow: "auto" }}>
-      {/* File header */}
+      {/* Sticky file header */}
       <Box
         sx={{
           display: "flex",
@@ -207,10 +272,9 @@ export default function DiffViewer({ file }: { file: GitHubPRFile }) {
         </Typography>
       </Box>
 
-      {/* Hunks */}
       <Box sx={{ fontSize: "0.8rem" }}>
         {hunks.map((hunk, i) => (
-          <Hunk key={i} hunk={hunk} />
+          <Hunk key={i} hunk={hunk} isMarkdown={markdown} language={language} />
         ))}
       </Box>
     </Box>
