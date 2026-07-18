@@ -7,6 +7,9 @@ import Button from "@mui/material/Button";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
 import GitHubIcon from "@mui/icons-material/GitHub";
+import PREntryForm from "@/components/PREntryForm";
+
+// Typography is kept in scope — still used in the Toolbar for the app name and username.
 
 interface DashboardPageProps {
   login: string;
@@ -59,19 +62,7 @@ export default function DashboardPage({ login, avatarUrl }: DashboardPageProps) 
         </Toolbar>
       </AppBar>
 
-      <Box
-        sx={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "calc(100vh - 64px)",
-          color: "text.secondary",
-        }}
-      >
-        <Typography variant="body1">
-          PR viewer coming in the next PR.
-        </Typography>
-      </Box>
+      <PREntryForm />
     </Box>
   );
 }
