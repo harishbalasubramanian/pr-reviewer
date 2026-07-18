@@ -10,14 +10,14 @@ import Box from "@mui/material/Box";
 import Link from "@mui/material/Link";
 import Typography from "@mui/material/Typography";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
-import { parsePatch, type DiffLine, type DiffHunk } from "@/lib/diff";
+import ChatBubbleOutlineIcon from "@mui/icons-material/ChatBubbleOutline";
+import Badge from "@mui/material/Badge";
+import { parsePatch, type DiffLine } from "@/lib/diff";
 import { isMarkdownFile } from "@/lib/github";
-import type { GitHubPRFile } from "@/types/github";
+import type { GitHubPRFile, GitHubPRComment, CommentSelectionRange } from "@/types/github";
 
 // --- Content renderers ---
 
-// Suppress react-markdown's default <p> wrapper so inline content stays on one row.
-// react-markdown passes HTMLAttributes + ExtraProps to custom components.
 const markdownComponents = {
   p: ({ children }: React.HTMLAttributes<HTMLParagraphElement> & ExtraProps) => (
     <span>{children}</span>
@@ -32,9 +32,6 @@ function MarkdownLineContent({ content }: { content: string }) {
   );
 }
 
-// Renders a single line of code with highlight.js syntax highlighting.
-// Per-line highlighting has a known limitation: multi-line constructs (block comments,
-// template literals) may not be correctly colored. Acceptable for a diff viewer.
 function CodeLineContent({
   content,
   language,
@@ -43,7 +40,6 @@ function CodeLineContent({
   language: string | null;
 }) {
   if (!language || !hljs.getLanguage(language)) {
-    // Unknown language — render plain monospace.
     return <>{content}</>;
   }
 
@@ -52,8 +48,6 @@ function CodeLineContent({
   return (
     <span
       className="hljs"
-      // highlight.js returns safe escaped HTML — dangerouslySetInnerHTML is the
-      // standard pattern for embedding its output in React.
       dangerouslySetInnerHTML={{ __html: highlighted.value }}
     />
   );
@@ -64,7 +58,7 @@ function CodeLineContent({
 const LINE_NUM_WIDTH = 48;
 const INDICATOR_WIDTH = 24;
 
-const LINE_STYLES: Record<DiffLine["type"], object> = {
+const LINE_STYLES: Record<DiffLine["type"], { bgcolor?: string; textDecoration?: string }> = {
   added: { bgcolor: "rgba(35, 134, 54, 0.15)" },
   removed: { bgcolor: "rgba(248, 81, 73, 0.15)", textDecoration: "line-through" },
   context: {},
@@ -124,28 +118,77 @@ function HunkHeader({ header }: { header: string }) {
   );
 }
 
+interface DiffRowProps {
+  line: DiffLine;
+  isMarkdown: boolean;
+  language: string | null;
+  index: number;
+  path: string;
+  selectedRange: CommentSelectionRange | null;
+  onSelectRange: (range: CommentSelectionRange | null) => void;
+  comments: GitHubPRComment[];
+  onSelectCommentThread: (comment: GitHubPRComment) => void;
+}
+
 function DiffRow({
   line,
   isMarkdown,
   language,
-}: {
-  line: DiffLine;
-  isMarkdown: boolean;
-  language: string | null;
-}) {
+  index,
+  path,
+  selectedRange,
+  onSelectRange,
+  comments,
+  onSelectCommentThread,
+}: DiffRowProps) {
+  const side = line.type === "removed" ? "LEFT" : "RIGHT";
+  const lineNumber = side === "LEFT" ? line.oldLineNumber : line.newLineNumber;
+
+  // Check if this row is selected
+  const isSelected =
+    selectedRange &&
+    selectedRange.path === path &&
+    index >= selectedRange.startIndex &&
+    index <= selectedRange.endIndex;
+
+  // Filter comments for this specific line
+  const rowComments = lineNumber
+    ? comments.filter(
+        (c) =>
+          c.path === path &&
+          c.line === lineNumber &&
+          c.side === side
+      )
+    : [];
+
+  const rowId = lineNumber ? `diff-row-${side.toLowerCase()}-${lineNumber}` : undefined;
+
+  const bgStyle = isSelected
+    ? "rgba(25, 118, 210, 0.12)"
+    : LINE_STYLES[line.type].bgcolor || "transparent";
+
   return (
     <Box
+      id={rowId}
+      className="diff-row"
+      data-index={index}
+      data-line={lineNumber || ""}
+      data-side={side}
+      data-path={path}
       sx={{
         display: "flex",
         alignItems: "baseline",
         minHeight: 24,
-        ...LINE_STYLES[line.type],
+        bgcolor: bgStyle,
+        textDecoration: LINE_STYLES[line.type].textDecoration,
+        transition: "background-color 0.15s ease",
         "&:hover": { filter: "brightness(0.97)" },
       }}
     >
       <LineNumber n={line.oldLineNumber} />
       <LineNumber n={line.newLineNumber} />
 
+      {/* Indicator with Hover "+" comment trigger */}
       <Box
         sx={{
           width: INDICATOR_WIDTH,
@@ -155,11 +198,51 @@ function DiffRow({
           fontFamily: "monospace",
           fontSize: "0.8rem",
           userSelect: "none",
+          position: "relative",
+          cursor: "pointer",
+          "&:hover .add-comment-btn": {
+            display: "inline-flex",
+          },
+          "&:hover .indicator-char": {
+            display: "none",
+          },
+        }}
+        onClick={() => {
+          if (!lineNumber) return;
+          onSelectRange({
+            path,
+            line: lineNumber,
+            side,
+            start_line: null,
+            start_side: null,
+            startIndex: index,
+            endIndex: index,
+          });
         }}
       >
-        {INDICATOR_CHAR[line.type]}
+        <span className="indicator-char">{INDICATOR_CHAR[line.type]}</span>
+        <Box
+          className="add-comment-btn"
+          sx={{
+            display: "none",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            alignItems: "center",
+            justifyContent: "center",
+            bgcolor: "primary.main",
+            color: "primary.contrastText",
+            borderRadius: 0.5,
+            fontSize: "0.75rem",
+          }}
+        >
+          +
+        </Box>
       </Box>
 
+      {/* Line Content */}
       <Box
         sx={{
           flexGrow: 1,
@@ -170,8 +253,6 @@ function DiffRow({
           wordBreak: "break-all",
           pr: 2,
           "& code": { fontSize: "0.75rem" },
-          // The hljs GitHub theme sets background: white on .hljs — clear it so
-          // the diff row's green/red background isn't obscured.
           "& .hljs": { background: "transparent" },
         }}
       >
@@ -181,6 +262,44 @@ function DiffRow({
           <CodeLineContent content={line.content} language={language} />
         )}
       </Box>
+
+      {/* Comment Badge indicator */}
+      {rowComments.length > 0 && (
+        <Box
+          onClick={(e) => {
+            e.stopPropagation();
+            onSelectCommentThread(rowComments[0]);
+          }}
+          sx={{
+            display: "inline-flex",
+            alignItems: "center",
+            cursor: "pointer",
+            color: "primary.main",
+            opacity: 0.8,
+            "&:hover": { opacity: 1 },
+            ml: 1,
+            mr: 2,
+            alignSelf: "center",
+          }}
+        >
+          <Badge
+            badgeContent={rowComments.length}
+            color="primary"
+            slotProps={{
+              badge: {
+                style: {
+                  fontSize: "0.65rem",
+                  height: 16,
+                  minWidth: 16,
+                  lineHeight: "16px",
+                },
+              },
+            }}
+          >
+            <ChatBubbleOutlineIcon sx={{ fontSize: 16 }} />
+          </Badge>
+        </Box>
+      )}
     </Box>
   );
 }
@@ -189,16 +308,37 @@ function Hunk({
   hunk,
   isMarkdown,
   language,
+  path,
+  selectedRange,
+  onSelectRange,
+  comments,
+  onSelectCommentThread,
 }: {
-  hunk: DiffHunk;
+  hunk: { header: string; lines: { line: DiffLine; index: number }[] };
   isMarkdown: boolean;
   language: string | null;
+  path: string;
+  selectedRange: CommentSelectionRange | null;
+  onSelectRange: (range: CommentSelectionRange | null) => void;
+  comments: GitHubPRComment[];
+  onSelectCommentThread: (comment: GitHubPRComment) => void;
 }) {
   return (
     <Box>
       <HunkHeader header={hunk.header} />
-      {hunk.lines.map((line, i) => (
-        <DiffRow key={i} line={line} isMarkdown={isMarkdown} language={language} />
+      {hunk.lines.map(({ line, index }) => (
+        <DiffRow
+          key={index}
+          index={index}
+          line={line}
+          isMarkdown={isMarkdown}
+          language={language}
+          path={path}
+          selectedRange={selectedRange}
+          onSelectRange={onSelectRange}
+          comments={comments}
+          onSelectCommentThread={onSelectCommentThread}
+        />
       ))}
     </Box>
   );
@@ -228,11 +368,21 @@ function NoPatchAvailable({ file }: { file: GitHubPRFile }) {
 
 interface DiffViewerProps {
   file: GitHubPRFile;
-  // Highlight.js language string for syntax highlighting, or null for plain text.
   language: string | null;
+  selectedRange: CommentSelectionRange | null;
+  onSelectRange: (range: CommentSelectionRange | null) => void;
+  comments: GitHubPRComment[];
+  onSelectCommentThread: (comment: GitHubPRComment) => void;
 }
 
-export default function DiffViewer({ file, language }: DiffViewerProps) {
+export default function DiffViewer({
+  file,
+  language,
+  selectedRange,
+  onSelectRange,
+  comments,
+  onSelectCommentThread,
+}: DiffViewerProps) {
   if (!file.patch) {
     return <NoPatchAvailable file={file} />;
   }
@@ -240,8 +390,64 @@ export default function DiffViewer({ file, language }: DiffViewerProps) {
   const hunks = parsePatch(file.patch);
   const markdown = isMarkdownFile(file.filename);
 
+  // Pre-calculate indices sequentially across all hunks
+  let globalLineIndex = 0;
+  const hunksWithIndices = hunks.map((hunk) => {
+    const linesWithIndices = hunk.lines.map((line) => {
+      const index = globalLineIndex;
+      globalLineIndex++;
+      return { line, index };
+    });
+    return { ...hunk, lines: linesWithIndices };
+  });
+
+  const handleMouseUp = () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      return;
+    }
+
+    const anchor = selection.anchorNode;
+    const focus = selection.focusNode;
+    if (!anchor || !focus) return;
+
+    const anchorRow = anchor.parentElement?.closest(".diff-row") as HTMLElement | null;
+    const focusRow = focus.parentElement?.closest(".diff-row") as HTMLElement | null;
+
+    if (!anchorRow || !focusRow) return;
+
+    const anchorIndex = parseInt(anchorRow.getAttribute("data-index") || "", 10);
+    const focusIndex = parseInt(focusRow.getAttribute("data-index") || "", 10);
+
+    if (isNaN(anchorIndex) || isNaN(focusIndex)) return;
+
+    const startIndex = Math.min(anchorIndex, focusIndex);
+    const endIndex = Math.max(anchorIndex, focusIndex);
+
+    const startEl = startIndex === anchorIndex ? anchorRow : focusRow;
+    const endEl = endIndex === anchorIndex ? anchorRow : focusRow;
+
+    const startLine = parseInt(startEl.getAttribute("data-line") || "", 10);
+    const startSide = startEl.getAttribute("data-side") as "LEFT" | "RIGHT";
+    const endLine = parseInt(endEl.getAttribute("data-line") || "", 10);
+    const endSide = endEl.getAttribute("data-side") as "LEFT" | "RIGHT";
+    const path = startEl.getAttribute("data-path") || "";
+
+    if (isNaN(startLine) || isNaN(endLine)) return;
+
+    onSelectRange({
+      path,
+      line: endLine,
+      side: endSide,
+      start_line: startIndex !== endIndex ? startLine : null,
+      start_side: startIndex !== endIndex ? startSide : null,
+      startIndex,
+      endIndex,
+    });
+  };
+
   return (
-    <Box sx={{ overflow: "auto" }}>
+    <Box sx={{ overflow: "auto" }} onMouseUp={handleMouseUp}>
       {/* Sticky file header */}
       <Box
         sx={{
@@ -273,8 +479,18 @@ export default function DiffViewer({ file, language }: DiffViewerProps) {
       </Box>
 
       <Box sx={{ fontSize: "0.8rem" }}>
-        {hunks.map((hunk, i) => (
-          <Hunk key={i} hunk={hunk} isMarkdown={markdown} language={language} />
+        {hunksWithIndices.map((hunk, i) => (
+          <Hunk
+            key={i}
+            hunk={hunk}
+            isMarkdown={markdown}
+            language={language}
+            path={file.filename}
+            selectedRange={selectedRange}
+            onSelectRange={onSelectRange}
+            comments={comments}
+            onSelectCommentThread={onSelectCommentThread}
+          />
         ))}
       </Box>
     </Box>
