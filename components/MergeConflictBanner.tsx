@@ -27,8 +27,6 @@ export default function MergeConflictBanner({
   const hasFetched = useRef(false); // prevents more than one re-fetch
 
 
-
-  //Test Test Test Test
   useEffect(() => {
     setMergeable(initialMergeable);
     setMergeableState(initialMergeableState);
