@@ -24,3 +24,14 @@ export interface GitHubPullRequest {
   };
   html_url: string;
 }
+
+export interface GitHubPRFile {
+  filename: string;
+  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;    // unified diff; absent for binary files or very large diffs
+  blob_url: string;  // link to the file on GitHub
+  sha: string;
+}
