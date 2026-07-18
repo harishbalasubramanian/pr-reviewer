@@ -26,6 +26,15 @@ export default function MergeConflictBanner({
   const [mergeable, setMergeable] = useState(initialMergeable);
   const hasFetched = useRef(false); // prevents more than one re-fetch
 
+
+  useEffect(() => {
+    setMergeable(initialMergeable);
+    setMergeableState(initialMergeableState);
+    if (initialMergeable !== null) {
+      hasFetched.current = true;
+    }
+  }, [initialMergeable, initialMergeableState]);
+
   useEffect(() => {
     // If GitHub has already computed mergeability, nothing to do.
     if (initialMergeable !== null) return;
