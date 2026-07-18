@@ -170,6 +170,9 @@ function DiffRow({
           wordBreak: "break-all",
           pr: 2,
           "& code": { fontSize: "0.75rem" },
+          // The hljs GitHub theme sets background: white on .hljs — clear it so
+          // the diff row's green/red background isn't obscured.
+          "& .hljs": { background: "transparent" },
         }}
       >
         {isMarkdown ? (
