@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AppBar from "@mui/material/AppBar";
 import Avatar from "@mui/material/Avatar";
 import Box from "@mui/material/Box";
@@ -9,6 +9,8 @@ import Chip from "@mui/material/Chip";
 import Link from "@mui/material/Link";
 import Toolbar from "@mui/material/Toolbar";
 import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import Badge from "@mui/material/Badge";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import GitHubIcon from "@mui/icons-material/GitHub";
 import RefreshIcon from "@mui/icons-material/Refresh";
@@ -24,6 +26,18 @@ const spin = keyframes`
   }
   to {
     transform: rotate(360deg);
+  }
+`;
+
+const pulse = keyframes`
+  0% {
+    box-shadow: 0 0 0 0 rgba(2, 136, 209, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(2, 136, 209, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(2, 136, 209, 0);
   }
 `;
 
@@ -64,7 +78,28 @@ export default function PRViewerPage({
   const [comments, setComments] = useState<GitHubPRComment[]>(initialComments);
   const [selectedRange, setSelectedRange] = useState<CommentSelectionRange | null>(null);
   const [snapshotHeadSha, setSnapshotHeadSha] = useState<string>(pr.head.sha);
+  const [latestHeadSha, setLatestHeadSha] = useState<string>(pr.head.sha);
   const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => {
+    const checkCommit = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const res = await fetch(`/api/pr/${owner}/${repo}/${prNumber}?t=${Date.now()}`);
+        if (res.ok) {
+          const freshPr = await res.json();
+          if (freshPr?.head?.sha) {
+            setLatestHeadSha(freshPr.head.sha);
+          }
+        }
+      } catch (err) {
+        console.error("Background check for commit updates failed:", err);
+      }
+    };
+
+    const interval = setInterval(checkCommit, 15000);
+    return () => clearInterval(interval);
+  }, [owner, repo, prNumber]);
 
   const fetchComments = async () => {
     try {
@@ -85,7 +120,9 @@ export default function PRViewerPage({
       const [prRes, filesRes, commentsRes] = await Promise.all([
         fetch(`/api/pr/${owner}/${repo}/${prNumber}?t=${timestamp}`),
         fetch(`/api/pr/${owner}/${repo}/${prNumber}/files?t=${timestamp}`),
-        fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?t=${timestamp}`),
+        fetch(`/api/pr/[owner]/[repo]/[prNumber]/comments?t=${timestamp}`).catch(() =>
+          fetch(`/api/pr/${owner}/${repo}/${prNumber}/comments?t=${timestamp}`)
+        ),
       ]);
 
       if (!prRes.ok || !filesRes.ok || !commentsRes.ok) {
@@ -100,6 +137,7 @@ export default function PRViewerPage({
       setFilesState(freshFiles);
       setComments(freshComments);
       setSnapshotHeadSha(freshPr.head.sha);
+      setLatestHeadSha(freshPr.head.sha);
 
       // Keep active file selected if it still exists in the new file list
       if (selectedFile) {
@@ -244,16 +282,33 @@ export default function PRViewerPage({
           <Typography variant="h6" component="h1" fontWeight={600} color="text.primary" sx={{ flexGrow: 1 }}>
             {prState.title}
           </Typography>
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={handleRefresh}
-            disabled={refreshing}
-            startIcon={<RefreshIcon sx={{ animation: refreshing ? `${spin} 1s linear infinite` : "none" }} />}
-            sx={{ textTransform: "none", borderRadius: 2 }}
+          <Badge
+            color="error"
+            variant="dot"
+            invisible={latestHeadSha === snapshotHeadSha}
+            sx={{
+              "& .MuiBadge-badge": {
+                right: 4,
+                top: 4,
+              }
+            }}
           >
-            {refreshing ? "Refreshing..." : "Refresh"}
-          </Button>
+            <Button
+              size="small"
+              variant={latestHeadSha !== snapshotHeadSha ? "contained" : "outlined"}
+              color={latestHeadSha !== snapshotHeadSha ? "primary" : "inherit"}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              startIcon={<RefreshIcon sx={{ animation: refreshing ? `${spin} 1s linear infinite` : "none" }} />}
+              sx={{
+                textTransform: "none",
+                borderRadius: 2,
+                animation: latestHeadSha !== snapshotHeadSha && !refreshing ? `${pulse} 2s infinite` : "none",
+              }}
+            >
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+          </Badge>
         </Box>
 
         <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
@@ -263,6 +318,37 @@ export default function PRViewerPage({
             <code>{prState.head.ref}</code> into <code>{prState.base.ref}</code>
           </Typography>
         </Box>
+
+        {latestHeadSha !== snapshotHeadSha && (
+          <Alert
+            severity="info"
+            sx={{
+              mb: 2,
+              borderRadius: 1.5,
+              "& .MuiAlert-message": {
+                display: "flex",
+                alignItems: "center",
+                gap: 1.5,
+                width: "100%",
+                justifyContent: "space-between",
+                flexWrap: "wrap",
+              }
+            }}
+          >
+            <Typography variant="body2" sx={{ m: 0 }}>
+              A new commit is available on GitHub. Click Refresh to load the latest changes.
+            </Typography>
+            <Button
+              size="small"
+              variant="text"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              sx={{ textTransform: "none", py: 0, px: 1, fontWeight: 600 }}
+            >
+              Refresh View
+            </Button>
+          </Alert>
+        )}
 
         <MergeConflictBanner
           owner={owner}
